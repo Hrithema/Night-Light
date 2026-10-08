@@ -1,0 +1,9 @@
+earthaccess
+h5py
+numpy
+scipy
+pandas
+scikit-learn
+joblib
+matplotlib
+python-dotenv

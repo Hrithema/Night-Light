@@ -1,0 +1,75 @@
+"""Usage:
+    python run_pipeline.py --fake
+    python run_pipeline.py --real
+    python run_pipeline.py --real --boundary data/jharkhand.geojson
+    python run_pipeline.py --real --boundary data/india_states.geojson --state-name Jharkhand
+    python run_pipeline.py --inspect-boundary data/india_states.geojson   # list property names
+"""
+import argparse
+import numpy as np
+from src import config
+from src.features import compute_features, baseline_change_flag, emergence_flag
+from src.plot import save_change_maps, save_sites_map
+from src.sites import extract_sites, save_geojson, save_label_sheet
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--fake", action="store_true")
+    p.add_argument("--real", action="store_true")
+    p.add_argument("--boundary", help="GeoJSON with the Jharkhand border")
+    p.add_argument("--state-name", help="e.g. Jharkhand (when file has many states)")
+    p.add_argument("--state-key", help="property column holding the state name")
+    p.add_argument("--inspect-boundary", help="print property names of a GeoJSON and exit")
+    args = p.parse_args()
+
+    if args.inspect_boundary:
+        from src.geo import list_properties
+        list_properties(args.inspect_boundary)
+        return
+    if args.fake == args.real:
+        p.error("choose exactly one of --fake / --real")
+
+    if args.fake:
+        from src.fake_data import make_fake_stack
+        stack, years = make_fake_stack()
+    else:
+        from src.loader import load_stack
+        stack, years = load_stack()
+
+    print("stack shape:", stack.shape, "years:", years[0], "-", years[-1])
+    print("share of NaN pixels:", round(float(np.isnan(stack).mean()), 4))
+
+    mask = None
+    if args.boundary:
+        from src.geo import border_mask
+        mask = border_mask(args.boundary, args.state_name, args.state_key)
+        print("pixels inside border:", int(mask.sum()), "of", mask.size)
+        stack = np.where(mask[None, :, :], stack, np.nan)
+
+    feats = compute_features(stack, years)
+    growth = baseline_change_flag(feats)
+    emerge = emergence_flag(feats)
+    flag_any = growth | emerge
+    print("flagged pixels: growth", int(growth.sum()), "| emergence", int(emerge.sum()))
+
+    config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(config.PROCESSED_DIR / "features.npz",
+                        growth=growth, emergence=emerge, **feats)
+
+    sites, _ = extract_sites(feats, growth, emerge, mask)
+    print("sites found:", len(sites))
+
+    save_geojson(sites, config.OUTPUT_DIR / "sites.geojson")
+    n_rows = save_label_sheet(sites, feats, flag_any, mask,
+                              config.PROCESSED_DIR / "label_sheet.csv")
+    print("label sheet rows:", n_rows)
+
+    print("saved:", save_change_maps(feats, flag_any, years))
+    print("saved:", save_sites_map(feats, sites))
+    print("saved:", config.OUTPUT_DIR / "sites.geojson")
+    print("saved:", config.PROCESSED_DIR / "label_sheet.csv")
+
+
+if __name__ == "__main__":
+    main()
