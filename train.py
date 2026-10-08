@@ -22,11 +22,18 @@ MIN_PER_CLASS = 4
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sheet", default=str(config.PROCESSED_DIR / "label_sheet.csv"))
+    ap.add_argument("--merge", action="append", default=[],
+                    help="merge labels, e.g. --merge industrial,mining=industrial_mining")
     args = ap.parse_args()
 
     df = pd.read_csv(args.sheet)
     df["label"] = df["label"].astype("string").fillna("").str.strip().str.lower()
     df = df[df["label"] != ""].copy()
+    for rule in args.merge:
+        src, dst = rule.split("=")
+        olds = [x.strip().lower() for x in src.split(",")]
+        df["label"] = df["label"].replace({o: dst.strip().lower() for o in olds})
+        print(f"merged {olds} -> {dst}")
     print("rows in sheet:", len(pd.read_csv(args.sheet)), "| labelled rows:", len(df))
     if df.empty:
         raise SystemExit(
@@ -76,6 +83,14 @@ def main():
               round(float(rule_prec), 3))
         print("model: precision =", round(tp / max(m_pred.sum(), 1), 3),
               "| recall =", round(tp / max(is_change.sum(), 1), 3), "\n")
+
+    if cand.any() and is_change.any():
+        tc, mc = is_change[cand], (pred != "no_change")[cand]
+        tp = (mc & tc).sum()
+        print("Among FLAGGED sites only (the real use: filtering false alarms):")
+        print("  rule : precision", round(float(tc.mean()), 3), "(it keeps every flagged site)")
+        print("  model: precision", round(tp / max(mc.sum(), 1), 3),
+              "| recall", round(tp / max(tc.sum(), 1), 3), "\n")
 
     clf.fit(X, y)
     imp = sorted(zip(FEATURE_NAMES, clf.feature_importances_), key=lambda t: -t[1])

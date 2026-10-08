@@ -6,4 +6,5 @@ pandas
 scikit-learn
 joblib
 matplotlib
+flask
 python-dotenv

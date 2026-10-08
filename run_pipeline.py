@@ -6,6 +6,7 @@
     python run_pipeline.py --inspect-boundary data/india_states.geojson   # list property names
 """
 import argparse
+import json
 import numpy as np
 from src import config
 from src.features import compute_features, baseline_change_flag, emergence_flag
@@ -46,6 +47,11 @@ def main():
         mask = border_mask(args.boundary, args.state_name, args.state_key)
         print("pixels inside border:", int(mask.sum()), "of", mask.size)
         stack = np.where(mask[None, :, :], stack, np.nan)
+
+    config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    np.save(config.PROCESSED_DIR / "stack.npy", stack.astype(np.float16))  # for the API time series
+    with open(config.PROCESSED_DIR / "years.json", "w") as fh:
+        json.dump([int(y) for y in years], fh)
 
     feats = compute_features(stack, years)
     growth = baseline_change_flag(feats)
